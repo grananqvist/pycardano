@@ -16,7 +16,7 @@ from pycardano.nativescript import (
     ScriptAll,
     ScriptPubkey,
 )
-from pycardano.transaction import MultiAsset, TransactionOutput
+from pycardano.transaction import MultiAsset, TransactionInput, TransactionOutput, UTxO
 from pycardano.txbuilder import TransactionBuilder
 
 

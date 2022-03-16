@@ -12,6 +12,7 @@ from pycardano.coinselection import (
 )
 from pycardano.exception import (
     InsufficientUTxOBalanceException,
+    InvalidArgumentException,
     InvalidTransactionException,
     UTxOSelectionException,
 )
@@ -71,8 +72,10 @@ class TransactionBuilder:
         self._native_scripts = None
         self._mint = None
         self._required_signers = None
+        self._scripts = []
         self._datums = []
         self._redeemers = []
+        self._inputs_to_redeemers = {}
 
         if utxo_selectors:
             self.utxo_selectors = utxo_selectors
@@ -86,9 +89,34 @@ class TransactionBuilder:
             utxo (UTxO): UTxO to be added.
 
         Returns:
-            TransactionBuilder: The current transaction builder.
+            TransactionBuilder: Current transaction builder.
         """
         self.inputs.append(utxo)
+        return self
+
+    def add_script_input(self,
+                         utxo: UTxO,
+                         script: bytes,
+                         datum: PlutusData,
+                         redeemer: Redeemer) -> TransactionBuilder:
+        """Add a script UTxO to transaction's inputs.
+
+        Args:
+            utxo (UTxO): Script UTxO to be added.
+            script (Optional[bytes]): A plutus script.
+            datum (Optional[PlutusData]): A plutus datum to unlock the UTxO.
+            redeemer (Optional[Redeemer]): A plutus redeemer to unlock the UTxO.
+
+        Returns:
+            TransactionBuilder: Current transaction builder.
+        """
+        if not utxo.output.address.address_type.name.startswith("SCRIPT"):
+            raise InvalidArgumentException(f"Expect the output address of utxo to be script type, "
+                                           f"but got {utxo.output.address.address_type} instead.")
+        self.scripts.append(script)
+        self.datums.append(datum)
+        self.redeemers.append(redeemer)
+        self._inputs_to_redeemers[utxo] = redeemer
         return self
 
     def add_input_address(self, address: Union[Address, str]) -> TransactionBuilder:
@@ -118,7 +146,7 @@ class TransactionBuilder:
             add_datum_to_witness (bool): Optionally add the actual datum to transaction witness set. Defaults to False.
 
         Returns:
-            TransactionBuilder: The current transaction builder.
+            TransactionBuilder: Current transaction builder.
         """
         if datum:
             tx_out.datum_hash = datum.hash()
@@ -194,6 +222,10 @@ class TransactionBuilder:
     @required_signers.setter
     def required_signers(self, signers: List[VerificationKeyHash]):
         self._required_signers = signers
+
+    @property
+    def scripts(self) -> List[bytes]:
+        return self._scripts
 
     @property
     def datums(self) -> List[PlutusData]:
@@ -426,6 +458,12 @@ class TransactionBuilder:
 
         return results
 
+    def _set_redeemer_index(self):
+        for i, utxo in enumerate(self.inputs):
+            if utxo in self._inputs_to_redeemers:
+                self._inputs_to_redeemers[utxo].index = i
+        self.redeemers.sort(key=lambda r: r.index)
+
     def _build_tx_body(self) -> TransactionBody:
         tx_body = TransactionBody(
             [i.input for i in self.inputs],
@@ -476,6 +514,7 @@ class TransactionBuilder:
         """
         return TransactionWitnessSet(
             native_scripts=self.native_scripts,
+            plutus_script=self.scripts if self.scripts else None,
             redeemer=self.redeemers if self.redeemers else None,
             plutus_data=self.datums if self.datums else None
         )
@@ -551,6 +590,8 @@ class TransactionBuilder:
         )
 
         self.inputs[:] = selected_utxos[:]
+
+        self._set_redeemer_index()
 
         self._add_change_and_fee(change_address)
 
