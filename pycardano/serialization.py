@@ -342,7 +342,6 @@ class CBORSerializable:
     def __repr__(self):
         return pformat(vars(self))
 
-
 def _restore_dataclass_field(
     f: Field, v: Primitive
 ) -> Union[Primitive, CBORSerializable]:

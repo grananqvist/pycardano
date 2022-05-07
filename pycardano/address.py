@@ -404,3 +404,6 @@ class Address(CBORSerializable):
 
     def __repr__(self):
         return f"{self.encode()}"
+
+    def __hash__(self):
+        return hash(self.to_cbor())

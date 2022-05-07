@@ -46,7 +46,7 @@ __all__ = [
 ]
 
 
-@dataclass(repr=False)
+@dataclass(repr=False, unsafe_hash=True)
 class TransactionInput(ArrayCBORSerializable):
     transaction_id: TransactionId
 
@@ -201,9 +201,12 @@ class MultiAsset(DictCBORSerializable):
 
         return count
 
+    def __hash__(self):
+        return hash(self.to_cbor())
+
 
 @typechecked
-@dataclass(repr=False)
+@dataclass(repr=False, unsafe_hash=True)
 class Value(ArrayCBORSerializable):
     coin: int = 0
     """Amount of ADA"""
@@ -247,7 +250,7 @@ class Value(ArrayCBORSerializable):
         return self <= other and self != other
 
 
-@dataclass(repr=False)
+@dataclass(repr=False, unsafe_hash=True)
 class TransactionOutput(ArrayCBORSerializable):
     address: Address
 
