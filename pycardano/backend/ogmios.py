@@ -180,7 +180,12 @@ class OgmiosChainContext(ChainContext):
         return self._request(method, args)["slot"]
 
     def _extract_asset_info(self, asset_hash: str):
-        policy_hex, asset_name_hex = asset_hash.split(".")
+        if '.' not in asset_hash:
+            # Asset name is empty.
+            policy_hex = asset_hash
+            asset_name_hex = ''
+        else:
+            policy_hex, asset_name_hex = asset_hash.split(".")
         policy = ScriptHash.from_primitive(policy_hex)
         asset_name_hex = AssetName.from_primitive(asset_name_hex)
 
