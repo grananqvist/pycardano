@@ -103,7 +103,7 @@ def min_lovelace(
     Returns:
         int: Minimum required lovelace amount for this transaction output.
     """
-    if isinstance(amount, int):
+    if isinstance(amount, int) or not amount.multi_asset:
         return context.protocol_param.min_utxo
 
     b_size = bundle_size(amount.multi_asset)
@@ -135,7 +135,10 @@ def script_data_hash(
         cost_models = COST_MODELS
 
     redeemer_bytes = cbor2.dumps(redeemers, default=default_encoder)
-    datum_bytes = cbor2.dumps(datums, default=default_encoder)
+    if datums:
+        datum_bytes = cbor2.dumps(datums, default=default_encoder)
+    else:
+        datum_bytes = b""
     cost_models_bytes = cbor2.dumps(cost_models, default=default_encoder)
 
     return ScriptDataHash(

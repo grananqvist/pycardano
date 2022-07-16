@@ -24,6 +24,7 @@ making it a light-weight library that is easy and fast to set up in all kinds of
     guides/serialization
     guides/instance_creation
     guides/transaction
+    guides/plutus
 
 
 .. toctree::
@@ -32,6 +33,7 @@ making it a light-weight library that is easy and fast to set up in all kinds of
 
    api/pycardano.address
    api/pycardano.backend.base
+   api/pycardano.certificate
    api/pycardano.coinselection
    api/pycardano.exception
    api/pycardano.hash
