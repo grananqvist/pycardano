@@ -308,6 +308,25 @@ class UTxO:
         )
 
 
+    def fast_hash(self):
+        # Cheat with tx hashing here to make it faster.
+        # Assume inputs combined with output address + amount
+        # is a unique combination.
+        if isinstance(self.input.transaction_id, str):
+            txid = self.input.transaction_id
+        else:
+            txid = self.input.transaction_id.payload
+        if isinstance(self.output.address, str):
+            address_info = (self.output.address, )
+
+        else:
+            address_info = (self.output.address.payment_part.payload,
+            self.output.address.staking_part.payload)
+        return hash((txid, self.input.index, 
+            *address_info,
+            self.output.lovelace)) 
+
+
 class Withdrawals(DictCBORSerializable):
     """A disctionary of reward addresses to reward withdrawal amount.
 
