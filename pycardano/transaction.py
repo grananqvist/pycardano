@@ -315,7 +315,10 @@ class UTxO:
         if isinstance(self.input.transaction_id, str):
             txid = self.input.transaction_id
         else:
-            txid = self.input.transaction_id.payload
+            txid = self.input.transaction_id.payload.hex()
+
+        return (txid, self.input.index)
+
         if isinstance(self.output.address, str):
             address_info = (self.output.address, )
 
