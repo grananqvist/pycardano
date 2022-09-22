@@ -55,7 +55,7 @@ __all__ = [
 ]
 
 
-@dataclass(repr=False, unsafe_hash=True)
+@dataclass(repr=False)
 class TransactionInput(ArrayCBORSerializable):
     transaction_id: TransactionId
 
