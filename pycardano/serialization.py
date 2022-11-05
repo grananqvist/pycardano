@@ -106,7 +106,7 @@ def default_encoder(
         encoder.encode(value.to_validated_primitive())
 
 
-@typechecked
+#@typechecked
 class CBORSerializable:
     """
     CBORSerializable standardizes the interfaces a class should implement in order for it to be serialized to and
@@ -739,7 +739,7 @@ class DictCBORSerializable(CBORSerializable):
         return self.__class__(self)
 
 
-@typechecked
+#@typechecked
 def list_hook(
     cls: Type[CBORSerializable],
 ) -> Callable[[List[Primitive]], List[CBORBase]]:

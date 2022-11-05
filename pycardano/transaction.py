@@ -422,7 +422,7 @@ class TransactionOutput(CBORSerializable):
     def from_primitive(cls: TransactionOutput, value: Primitive) -> TransactionOutput:
         if isinstance(value, list):
             output = _TransactionOutputLegacy.from_primitive(value)
-            return cls(output.address, output.amount, datum=output.datum_hash)
+            return cls(output.address, output.amount, datum_hash=output.datum_hash)
         else:
             output = _TransactionOutputPostAlonzo.from_primitive(value)
             datum = output.datum.datum if output.datum else None
