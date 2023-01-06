@@ -349,8 +349,19 @@ class CBORSerializable:
         value = loads(payload)
         return cls.from_primitive(value)
 
+    def __getstate__(self):
+        return self.to_cbor()
+    
+    def __setstate__(self, cbor):
+        obj = self.from_cbor(cbor)
+        self.__dict__ = obj.__dict__
+
+        if hasattr(obj, '_payload'):
+            self._payload = obj._payload
+
     def __repr__(self):
-        return pformat(vars(self), indent=2)
+        #return pformat(vars(self), indent=2)
+        return str(dict(vars(self)))
 
 def _restore_dataclass_field(
     f: Field, v: Primitive
@@ -487,9 +498,10 @@ class ArrayCBORSerializable(CBORSerializable):
         """
         all_fields = [f for f in fields(cls) if f.init]
         if type(values) != list:
-            raise DeserializeException(
-                f"Expect input value to be a list, got a {type(values)} instead."
-            )
+            #raise DeserializeException(
+            #    f"Expect input value to be a list, got a {type(values)} instead."
+            #)
+            values = [values]
 
         restored_vals = []
         type_hints = get_type_hints(cls)

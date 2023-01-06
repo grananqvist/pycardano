@@ -449,7 +449,8 @@ class UTxO(ArrayCBORSerializable):
     output: TransactionOutput
 
     def __repr__(self):
-        return pformat(vars(self))
+        #return pformat(vars(self))
+        return f"UTxO(in={self.input}, out={self.output}"
 
     def __hash__(self):
         return hash(

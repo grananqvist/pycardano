@@ -41,7 +41,7 @@ class ConstrainedBytes(CBORSerializable):
         payload (bytes): Hash in bytes.
     """
 
-    __slots__ = "_payload"
+    #__slots__ = "_payload"
 
     MAX_SIZE = 32
     MIN_SIZE = 0
