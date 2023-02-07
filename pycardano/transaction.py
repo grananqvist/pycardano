@@ -226,6 +226,14 @@ class Value(ArrayCBORSerializable):
     multi_asset: MultiAsset = field(default_factory=MultiAsset)
     """Multi-assets associated with the UTxO"""
 
+    @classmethod
+    def from_primitive(cls, value):
+        # pycardano doesn't support deserializing empty multi_asset
+        # change [int, {}] to [int]
+        if value is not None and len(value) == 2 and value[1] == {}:
+            value = [value[0]]
+        return ArrayCBORSerializable.from_primitive(value)
+
     def union(self, other: Union[Value, int]) -> Value:
         return self + other
 
@@ -266,6 +274,7 @@ class Value(ArrayCBORSerializable):
             return super().to_shallow_primitive()
         else:
             return self.coin
+
 
 
 @dataclass(repr=False)
