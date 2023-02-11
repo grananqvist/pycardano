@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import os
+from typing import Optional, Type
 
 from nacl.encoding import RawEncoder
 from nacl.hash import blake2b
 from nacl.public import PrivateKey
 from nacl.signing import SigningKey as NACLSigningKey
 
-from pycardano.crypto.bip32 import BIP32ED25519PrivateKey
+from pycardano.crypto.bip32 import BIP32ED25519PrivateKey, HDWallet
 from pycardano.exception import InvalidKeyTypeException
 from pycardano.hash import VERIFICATION_KEY_HASH_SIZE, VerificationKeyHash
-from pycardano.serialization import CBORSerializable
+from pycardano.serialization import CBORSerializable, limit_primitive_type
 
 __all__ = [
     "Key",
@@ -40,7 +41,12 @@ class Key(CBORSerializable):
     KEY_TYPE = ""
     DESCRIPTION = ""
 
-    def __init__(self, payload: bytes, key_type: str = None, description: str = None):
+    def __init__(
+        self,
+        payload: bytes,
+        key_type: Optional[str] = None,
+        description: Optional[str] = None,
+    ):
         self._payload = payload
         self._key_type = key_type or self.KEY_TYPE
         self._description = description or self.KEY_TYPE
@@ -61,7 +67,8 @@ class Key(CBORSerializable):
         return self.payload
 
     @classmethod
-    def from_primitive(cls, value: bytes) -> Key:
+    @limit_primitive_type(bytes)
+    def from_primitive(cls: Type["Key"], value: bytes) -> Key:
         return cls(value)
 
     def to_json(self) -> str:
@@ -81,7 +88,7 @@ class Key(CBORSerializable):
         )
 
     @classmethod
-    def from_json(cls, data: str, validate_type=False) -> Key:
+    def from_json(cls: Type[Key], data: str, validate_type=False) -> Key:
         """Restore a key from a JSON string.
 
         Args:
@@ -103,8 +110,12 @@ class Key(CBORSerializable):
                 f"Expect key type: {cls.KEY_TYPE}, got {obj['type']} instead."
             )
 
+        k = cls.from_cbor(obj["cborHex"])
+
+        assert isinstance(k, cls)
+
         return cls(
-            cls.from_cbor(obj["cborHex"]).payload,
+            k.payload,
             key_type=obj["type"],
             description=obj["description"],
         )
@@ -185,6 +196,19 @@ class ExtendedSigningKey(Key):
             self.description.replace("Signing", "Verification"),
         )
 
+    @classmethod
+    def from_hdwallet(cls, hdwallet: HDWallet) -> ExtendedSigningKey:
+        if hdwallet.xprivate_key is None or hdwallet.chain_code is None:
+            raise InvalidKeyTypeException(
+                "The hdwallet doesn't contain extended private key or chain code info."
+            )
+
+        return cls(
+            payload=hdwallet.xprivate_key + hdwallet.public_key + hdwallet.chain_code,
+            key_type="PaymentExtendedSigningKeyShelley_ed25519_bip32",
+            description="Payment Signing Key",
+        )
+
 
 class ExtendedVerificationKey(Key):
     def hash(self) -> VerificationKeyHash:
@@ -229,19 +253,19 @@ class PaymentExtendedVerificationKey(ExtendedVerificationKey):
 
 
 class PaymentKeyPair:
-    def __init__(
-        self, signing_key: PaymentSigningKey, verification_key: PaymentVerificationKey
-    ):
+    def __init__(self, signing_key: SigningKey, verification_key: VerificationKey):
         self.signing_key = signing_key
         self.verification_key = verification_key
 
     @classmethod
-    def generate(cls) -> PaymentKeyPair:
+    def generate(cls: Type[PaymentKeyPair]) -> PaymentKeyPair:
         signing_key = PaymentSigningKey.generate()
         return cls.from_signing_key(signing_key)
 
     @classmethod
-    def from_signing_key(cls, signing_key: PaymentSigningKey) -> PaymentKeyPair:
+    def from_signing_key(
+        cls: Type[PaymentKeyPair], signing_key: SigningKey
+    ) -> PaymentKeyPair:
         return cls(signing_key, PaymentVerificationKey.from_signing_key(signing_key))
 
     def __eq__(self, other):
@@ -273,17 +297,17 @@ class StakeExtendedVerificationKey(ExtendedVerificationKey):
 
 
 class StakeKeyPair:
-    def __init__(
-        self, signing_key: StakeSigningKey, verification_key: StakeVerificationKey
-    ):
+    def __init__(self, signing_key: SigningKey, verification_key: VerificationKey):
         self.signing_key = signing_key
         self.verification_key = verification_key
 
     @classmethod
-    def generate(cls) -> StakeKeyPair:
+    def generate(cls: Type[StakeKeyPair]) -> StakeKeyPair:
         signing_key = StakeSigningKey.generate()
         return cls.from_signing_key(signing_key)
 
     @classmethod
-    def from_signing_key(cls, signing_key: StakeSigningKey) -> StakeKeyPair:
+    def from_signing_key(
+        cls: Type[StakeKeyPair], signing_key: SigningKey
+    ) -> StakeKeyPair:
         return cls(signing_key, StakeVerificationKey.from_signing_key(signing_key))

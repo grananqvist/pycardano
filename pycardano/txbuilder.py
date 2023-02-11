@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from copy import copy, deepcopy
+from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -40,6 +40,7 @@ from pycardano.plutus import (
     PlutusV2Script,
     Redeemer,
     RedeemerTag,
+    ScriptType,
     datum_hash,
     script_hash,
 )
@@ -55,13 +56,7 @@ from pycardano.transaction import (
     Value,
     Withdrawals,
 )
-from pycardano.utils import (
-    fee,
-    max_tx_fee,
-    min_lovelace_post_alonzo,
-    min_lovelace_pre_alonzo,
-    script_data_hash,
-)
+from pycardano.utils import fee, max_tx_fee, min_lovelace_post_alonzo, script_data_hash
 from pycardano.witness import TransactionWitnessSet, VerificationKeyWitness
 
 __all__ = ["TransactionBuilder"]
@@ -93,23 +88,23 @@ class TransactionBuilder:
     execution_step_buffer: float = 0.2
     """Additional amount of execution step (in ratio) that will be added on top of estimation"""
 
-    ttl: int = field(default=None)
+    ttl: Optional[int] = field(default=None)
 
-    validity_start: int = field(default=None)
+    validity_start: Optional[int] = field(default=None)
 
-    auxiliary_data: AuxiliaryData = field(default=None)
+    auxiliary_data: Optional[AuxiliaryData] = field(default=None)
 
-    native_scripts: List[NativeScript] = field(default=None)
+    native_scripts: Optional[List[NativeScript]] = field(default=None)
 
-    mint: MultiAsset = field(default=None)
+    mint: Optional[MultiAsset] = field(default=None)
 
-    required_signers: List[VerificationKeyHash] = field(default=None)
+    required_signers: Optional[List[VerificationKeyHash]] = field(default=None)
 
     collaterals: List[UTxO] = field(default_factory=lambda: [])
 
-    certificates: List[Certificate] = field(default=None)
+    certificates: Optional[List[Certificate]] = field(default=None)
 
-    withdrawals: Withdrawals = field(default=None)
+    withdrawals: Optional[Withdrawals] = field(default=None)
 
     reference_inputs: Set[TransactionInput] = field(
         init=False, default_factory=lambda: set()
@@ -119,7 +114,9 @@ class TransactionBuilder:
 
     _excluded_inputs: List[UTxO] = field(init=False, default_factory=lambda: [])
 
-    _input_addresses: List[Address] = field(init=False, default_factory=lambda: [])
+    _input_addresses: List[Union[Address, str]] = field(
+        init=False, default_factory=lambda: []
+    )
 
     _outputs: List[TransactionOutput] = field(init=False, default_factory=lambda: [])
 
@@ -127,19 +124,19 @@ class TransactionBuilder:
 
     _datums: Dict[DatumHash, Datum] = field(init=False, default_factory=lambda: {})
 
-    _collateral_return: TransactionOutput = field(init=False, default=None)
+    _collateral_return: Optional[TransactionOutput] = field(init=False, default=None)
 
-    _total_collateral: int = field(init=False, default=None)
+    _total_collateral: Optional[int] = field(init=False, default=None)
 
     _inputs_to_redeemers: Dict[UTxO, Redeemer] = field(
         init=False, default_factory=lambda: {}
     )
 
-    _minting_script_to_redeemers: List[Tuple[bytes, Redeemer]] = field(
+    _minting_script_to_redeemers: List[Tuple[ScriptType, Optional[Redeemer]]] = field(
         init=False, default_factory=lambda: []
     )
 
-    _inputs_to_scripts: Dict[UTxO, bytes] = field(
+    _inputs_to_scripts: Dict[UTxO, ScriptType] = field(
         init=False, default_factory=lambda: {}
     )
 
@@ -147,7 +144,7 @@ class TransactionBuilder:
         Union[NativeScript, PlutusV1Script, PlutusV2Script]
     ] = field(init=False, default_factory=lambda: [])
 
-    _should_estimate_execution_units: bool = field(init=False, default=None)
+    _should_estimate_execution_units: Optional[bool] = field(init=False, default=None)
 
     def add_input(self, utxo: UTxO) -> TransactionBuilder:
         """Add a specific UTxO to transaction's inputs.
@@ -214,13 +211,18 @@ class TransactionBuilder:
                 f"Expect the output address of utxo to be script type, "
                 f"but got {utxo.output.address.address_type} instead."
             )
-        if utxo.output.datum_hash and utxo.output.datum_hash != datum_hash(datum):
+
+        if (
+            utxo.output.datum_hash
+            and datum is not None
+            and utxo.output.datum_hash != datum_hash(datum)
+        ):
             raise InvalidArgumentException(
                 f"Datum hash in transaction output is {utxo.output.datum_hash}, "
                 f"but actual datum hash from input datum is {datum_hash(datum)}."
             )
 
-        if datum:
+        if datum is not None:
             self.datums[datum_hash(datum)] = datum
 
         if redeemer:
@@ -239,6 +241,7 @@ class TransactionBuilder:
                     self._reference_scripts.append(i.output.script)
                     break
         elif isinstance(script, UTxO):
+            assert script.output.script is not None
             self._inputs_to_scripts[utxo] = script.output.script
             self.reference_inputs.add(script.input)
             self._reference_scripts.append(script.output.script)
@@ -271,6 +274,7 @@ class TransactionBuilder:
             self._consolidate_redeemer(redeemer)
 
         if isinstance(script, UTxO):
+            assert script.output.script is not None
             self._minting_script_to_redeemers.append((script.output.script, redeemer))
             self.reference_inputs.add(script.input)
             self._reference_scripts.append(script.output.script)
@@ -309,10 +313,10 @@ class TransactionBuilder:
         Returns:
             TransactionBuilder: Current transaction builder.
         """
-        if datum:
+        if datum is not None:
             tx_out.datum_hash = datum_hash(datum)
         self.outputs.append(tx_out)
-        if add_datum_to_witness:
+        if datum is not None and add_datum_to_witness:
             self.datums[datum_hash(datum)] = datum
         return self
 
@@ -345,8 +349,9 @@ class TransactionBuilder:
         self._fee = fee
 
     @property
-    def all_scripts(self) -> List[bytes]:
-        scripts = {}
+    def all_scripts(self) -> List[ScriptType]:
+        scripts: Dict[ScriptHash, ScriptType] = {}
+        s: ScriptType
 
         if self.native_scripts:
             for s in self.native_scripts:
@@ -361,11 +366,15 @@ class TransactionBuilder:
         return list(scripts.values())
 
     @property
-    def scripts(self) -> List[bytes]:
-        scripts = {script_hash(s): s for s in self.all_scripts}
+    def scripts(self) -> List[ScriptType]:
+        scripts: Dict[ScriptHash, ScriptType] = {
+            script_hash(s): s for s in self.all_scripts
+        }
+        s: ScriptType
 
         for s in self._reference_scripts:
-            scripts.pop(script_hash(s))
+            if script_hash(s) in scripts:
+                scripts.pop(script_hash(s))
 
         return list(scripts.values())
 
@@ -375,8 +384,8 @@ class TransactionBuilder:
 
     @property
     def redeemers(self) -> List[Redeemer]:
-        return list(self._inputs_to_redeemers.values()) + [
-            r for _, r in self._minting_script_to_redeemers
+        return [r for r in self._inputs_to_redeemers.values() if r is not None] + [
+            r for _, r in self._minting_script_to_redeemers if r is not None
         ]
 
     @property
@@ -401,7 +410,7 @@ class TransactionBuilder:
             return None
 
     def _calc_change(
-        self, fees, inputs, outputs, address, precise_fee=False
+        self, fees, inputs, outputs, address, precise_fee=False, respect_min_utxo=True
     ) -> List[TransactionOutput]:
         requested = Value(fees)
         for o in outputs:
@@ -436,12 +445,14 @@ class TransactionBuilder:
 
         # when there is only ADA left, simply use remaining coin value as change
         if not change.multi_asset:
-            if change.coin < min_lovelace_pre_alonzo(change, self.context):
+            if respect_min_utxo and change.coin < min_lovelace_post_alonzo(
+                TransactionOutput(address, change), self.context
+            ):
                 raise InsufficientUTxOBalanceException(
                     f"Not enough ADA left for change: {change.coin} but needs "
-                    f"{min_lovelace_pre_alonzo(change, self.context)}"
+                    f"{min_lovelace_post_alonzo(TransactionOutput(address, change), self.context)}"
                 )
-            lovelace_change = change.coin
+            lovelace_change = Value(change.coin)
             change_output_arr.append(TransactionOutput(address, lovelace_change))
 
         # If there are multi asset in the change
@@ -456,8 +467,8 @@ class TransactionBuilder:
                 # Combine remainder of provided ADA with last MultiAsset for output
                 # There may be rare cases where adding ADA causes size exceeds limit
                 # We will revisit if it becomes an issue
-                if change.coin < min_lovelace_pre_alonzo(
-                    Value(0, multi_asset), self.context
+                if respect_min_utxo and change.coin < min_lovelace_post_alonzo(
+                    TransactionOutput(address, Value(0, multi_asset)), self.context
                 ):
                     raise InsufficientUTxOBalanceException(
                         "Not enough ADA left to cover non-ADA assets in a change address"
@@ -468,8 +479,8 @@ class TransactionBuilder:
                     change_value = Value(change.coin, multi_asset)
                 else:
                     change_value = Value(0, multi_asset)
-                    change_value.coin = min_lovelace_pre_alonzo(
-                        change_value, self.context
+                    change_value.coin = min_lovelace_post_alonzo(
+                        TransactionOutput(address, change_value), self.context
                     )
 
                 change_output_arr.append(TransactionOutput(address, change_value))
@@ -511,7 +522,12 @@ class TransactionBuilder:
             # Set fee to max
             self.fee = self._estimate_fee()
             changes = self._calc_change(
-                self.fee, self.inputs, self.outputs, change_address, precise_fee=True
+                self.fee,
+                self.inputs,
+                self.outputs,
+                change_address,
+                precise_fee=True,
+                respect_min_utxo=not merge_change,
             )
 
             _merge_changes(changes)
@@ -522,7 +538,12 @@ class TransactionBuilder:
         if change_address:
             self._outputs = original_outputs
             changes = self._calc_change(
-                self.fee, self.inputs, self.outputs, change_address, precise_fee=True
+                self.fee,
+                self.inputs,
+                self.outputs,
+                change_address,
+                precise_fee=True,
+                respect_min_utxo=not merge_change,
             )
 
             _merge_changes(changes)
@@ -560,7 +581,9 @@ class TransactionBuilder:
         attempt_amount = new_amount + current_amount
 
         # Calculate minimum ada requirements for more precise value size
-        required_lovelace = min_lovelace_pre_alonzo(attempt_amount, self.context)
+        required_lovelace = min_lovelace_post_alonzo(
+            TransactionOutput(output.address, attempt_amount), self.context
+        )
         attempt_amount.coin = required_lovelace
 
         return len(attempt_amount.to_cbor("bytes")) > max_val_size
@@ -573,6 +596,7 @@ class TransactionBuilder:
     ) -> List[MultiAsset]:
         multi_asset_arr = []
         base_coin = Value(coin=change_estimator.coin)
+        change_address = change_address or Address(FAKE_VKEY.hash())
         output = TransactionOutput(change_address, base_coin)
 
         # iteratively add tokens to output
@@ -617,7 +641,9 @@ class TransactionBuilder:
 
             # Calculate min lovelace required for more precise size
             updated_amount = deepcopy(output.amount)
-            required_lovelace = min_lovelace_pre_alonzo(updated_amount, self.context)
+            required_lovelace = min_lovelace_post_alonzo(
+                TransactionOutput(change_address, updated_amount), self.context
+            )
             updated_amount.coin = required_lovelace
 
             if len(updated_amount.to_cbor("bytes")) > max_val_size:
@@ -628,6 +654,9 @@ class TransactionBuilder:
         # Remove records where MultiAsset is null due to overflow of adding
         # items at the beginning of next policy to previous policy MultiAssets
         return multi_asset_arr
+
+    def _required_signer_vkey_hashes(self) -> Set[VerificationKeyHash]:
+        return set(self.required_signers) if self.required_signers else set()
 
     def _input_vkey_hashes(self) -> Set[VerificationKeyHash]:
         results = set()
@@ -747,6 +776,7 @@ class TransactionBuilder:
 
     def _build_fake_vkey_witnesses(self) -> List[VerificationKeyWitness]:
         vkey_hashes = self._input_vkey_hashes()
+        vkey_hashes.update(self._required_signer_vkey_hashes())
         vkey_hashes.update(self._native_scripts_vkey_hashes())
         vkey_hashes.update(self._certificate_vkey_hashes())
         vkey_hashes.update(self._withdrawal_vkey_hashes())
@@ -786,15 +816,17 @@ class TransactionBuilder:
             TransactionWitnessSet: A transaction witness set without verification key witnesses.
         """
 
-        native_scripts = []
-        plutus_v1_scripts = []
-        plutus_v2_scripts = []
+        native_scripts: List[NativeScript] = []
+        plutus_v1_scripts: List[PlutusV1Script] = []
+        plutus_v2_scripts: List[PlutusV2Script] = []
 
         for script in self.scripts:
             if isinstance(script, NativeScript):
                 native_scripts.append(script)
-            elif isinstance(script, PlutusV1Script) or type(script) is bytes:
+            elif isinstance(script, PlutusV1Script):
                 plutus_v1_scripts.append(script)
+            elif type(script) is bytes:
+                plutus_v1_scripts.append(PlutusV1Script(script))
             elif isinstance(script, PlutusV2Script):
                 plutus_v2_scripts.append(script)
             else:
@@ -850,7 +882,6 @@ class TransactionBuilder:
         Returns:
             TransactionBody: A transaction body.
         """
-        self._update_execution_units()
         self._ensure_no_input_exclusion_conflict()
         selected_utxos = []
         selected_amount = Value()
@@ -899,8 +930,11 @@ class TransactionBuilder:
                 unfulfilled_amount.coin = max(
                     0,
                     unfulfilled_amount.coin
-                    + min_lovelace_pre_alonzo(
-                        selected_amount - trimmed_selected_amount, self.context
+                    + min_lovelace_post_alonzo(
+                        TransactionOutput(
+                            change_address, selected_amount - trimmed_selected_amount
+                        ),
+                        self.context,
                     ),
                 )
         else:
@@ -927,11 +961,15 @@ class TransactionBuilder:
                         additional_utxo_pool.append(utxo)
                         additional_amount += utxo.output.amount
 
-            for i, selector in enumerate(self.utxo_selectors):
+            for index, selector in enumerate(self.utxo_selectors):
                 try:
                     selected, _ = selector.select(
                         additional_utxo_pool,
-                        [TransactionOutput(None, unfulfilled_amount)],
+                        [
+                            TransactionOutput(
+                                Address(FAKE_VKEY.hash()), unfulfilled_amount
+                            )
+                        ],
                         self.context,
                         include_max_fee=False,
                         respect_min_utxo=not can_merge_change,
@@ -943,7 +981,7 @@ class TransactionBuilder:
                     break
 
                 except UTxOSelectionException as e:
-                    if i < len(self.utxo_selectors) - 1:
+                    if index < len(self.utxo_selectors) - 1:
                         logger.info(e)
                         logger.info(f"{selector} failed. Trying next selector.")
                     else:
@@ -980,13 +1018,17 @@ class TransactionBuilder:
 
         self._set_collateral_return(collateral_change_address or change_address)
 
+        self._update_execution_units(
+            change_address, merge_change, collateral_change_address
+        )
+
         self._add_change_and_fee(change_address, merge_change=merge_change)
 
         tx_body = self._build_tx_body()
 
         return tx_body
 
-    def _set_collateral_return(self, collateral_return_address: Address):
+    def _set_collateral_return(self, collateral_return_address: Optional[Address]):
         """Calculate and set the change returned from the collateral inputs.
 
         Args:
@@ -1002,7 +1044,7 @@ class TransactionBuilder:
         ):
             return
 
-        if not collateral_return_address or self._should_estimate_execution_units:
+        if not collateral_return_address:
             return
 
         collateral_amount = (
@@ -1027,15 +1069,15 @@ class TransactionBuilder:
                         cur_total += candidate.output.amount
 
             sorted_inputs = sorted(
-                self.inputs.copy(), key=lambda i: i.output.amount, reverse=True
+                self.inputs.copy(),
+                key=lambda i: (len(i.output.to_cbor()), -i.output.amount.coin),
             )
             _add_collateral_input(tmp_val, sorted_inputs)
 
             if tmp_val.coin < collateral_amount:
                 sorted_inputs = sorted(
                     self.context.utxos(str(collateral_return_address)),
-                    key=lambda i: i.output.amount,
-                    reverse=True,
+                    key=lambda i: (len(i.output.to_cbor()), -i.output.amount.coin),
                 )
                 _add_collateral_input(tmp_val, sorted_inputs)
 
@@ -1044,36 +1086,44 @@ class TransactionBuilder:
         for utxo in self.collaterals:
             total_input += utxo.output.amount
 
-        # TODO: Remove this check when we are in Vasil era
-        if total_input.multi_asset:
-            if collateral_amount > total_input.coin:
+        if collateral_amount > total_input.coin:
+            raise ValueError(
+                f"Minimum collateral amount {collateral_amount} is greater than total "
+                f"provided collateral inputs {total_input}"
+            )
+        else:
+            return_amount = total_input - collateral_amount
+            min_lovelace_val = min_lovelace_post_alonzo(
+                TransactionOutput(collateral_return_address, return_amount),
+                self.context,
+            )
+            if min_lovelace_val > return_amount.coin:
                 raise ValueError(
-                    f"Minimum collateral amount {collateral_amount} is greater than total "
-                    f"provided collateral inputs {total_input}"
+                    f"Minimum lovelace amount for collateral return {min_lovelace_val} is "
+                    f"greater than collateral change {return_amount.coin}. Please provide more collateral inputs."
                 )
             else:
-                return_amount = total_input - collateral_amount
-                min_lovelace_val = min_lovelace_post_alonzo(
-                    TransactionOutput(collateral_return_address, return_amount),
-                    self.context,
+                self._collateral_return = TransactionOutput(
+                    collateral_return_address, total_input - collateral_amount
                 )
-                if min_lovelace_val > return_amount.coin:
-                    raise ValueError(
-                        f"Minimum lovelace amount for collateral return {min_lovelace_val} is "
-                        f"greater than collateral change {return_amount.coin}. Please provide more collateral inputs."
-                    )
-                else:
-                    self._collateral_return = TransactionOutput(
-                        collateral_return_address, total_input - collateral_amount
-                    )
-                    self._total_collateral = collateral_amount
+                self._total_collateral = collateral_amount
 
-    def _update_execution_units(self):
+    def _update_execution_units(
+        self,
+        change_address: Optional[Address] = None,
+        merge_change: Optional[bool] = False,
+        collateral_change_address: Optional[Address] = None,
+    ):
         if self._should_estimate_execution_units:
-            estimated_execution_units = self._estimate_execution_units()
+            estimated_execution_units = self._estimate_execution_units(
+                change_address, merge_change, collateral_change_address
+            )
             for r in self.redeemers:
                 key = f"{r.tag.name.lower()}:{r.index}"
-                if key not in estimated_execution_units:
+                if (
+                    key not in estimated_execution_units
+                    or estimated_execution_units[key] is None
+                ):
                     raise TransactionBuilderException(
                         f"Cannot find execution unit for redeemer: {r} "
                         f"in estimated execution units: {estimated_execution_units}"
@@ -1089,15 +1139,19 @@ class TransactionBuilder:
     def _estimate_execution_units(
         self,
         change_address: Optional[Address] = None,
-    ):
-        # Create a shallow copy of current builder, so we won't mess up current builder's internal states
+        merge_change: Optional[bool] = False,
+        collateral_change_address: Optional[Address] = None,
+    ) -> Dict[str, ExecutionUnits]:
+        # Create a deep copy of current builder, so we won't mess up current builder's internal states
         tmp_builder = TransactionBuilder(self.context)
         for f in fields(self):
             if f.name not in ("context",):
-                setattr(tmp_builder, f.name, copy(getattr(self, f.name)))
+                setattr(tmp_builder, f.name, deepcopy(getattr(self, f.name)))
         tmp_builder._should_estimate_execution_units = False
         self._should_estimate_execution_units = False
-        tx_body = tmp_builder.build(change_address)
+        tx_body = tmp_builder.build(
+            change_address, merge_change, collateral_change_address
+        )
         witness_set = tmp_builder._build_fake_witness_set()
         tx = Transaction(
             tx_body, witness_set, auxiliary_data=tmp_builder.auxiliary_data
@@ -1110,6 +1164,7 @@ class TransactionBuilder:
         signing_keys: List[Union[SigningKey, ExtendedSigningKey]],
         change_address: Optional[Address] = None,
         merge_change: Optional[bool] = False,
+        collateral_change_address: Optional[Address] = None,
     ) -> Transaction:
         """Build a transaction body from all constraints set through the builder and sign the transaction with
         provided signing keys.
@@ -1121,12 +1176,17 @@ class TransactionBuilder:
                 transaction body will likely be unbalanced (sum of inputs is greater than the sum of outputs).
             merge_change (Optional[bool]): If the change address match one of the transaction output, the change amount
                 will be directly added to that transaction output, instead of being added as a separate output.
+            collateral_change_address (Optional[Address]): Address to which collateral changes will be returned.
 
         Returns:
             Transaction: A signed transaction.
         """
 
-        tx_body = self.build(change_address=change_address, merge_change=merge_change)
+        tx_body = self.build(
+            change_address=change_address,
+            merge_change=merge_change,
+            collateral_change_address=collateral_change_address,
+        )
         witness_set = self.build_witness_set()
         witness_set.vkey_witnesses = []
 

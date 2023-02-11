@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 import cbor2
 from nacl.encoding import RawEncoder
@@ -28,8 +28,8 @@ __all__ = [
 def fee(
     context: ChainContext,
     length: int,
-    exec_steps: Optional[int] = 0,
-    max_mem_unit: Optional[int] = 0,
+    exec_steps: int = 0,
+    max_mem_unit: int = 0,
 ) -> int:
     """Calculate fee based on the length of a transaction's CBOR bytes and script execution.
 
@@ -122,7 +122,7 @@ def min_lovelace(
 
 
 def min_lovelace_pre_alonzo(
-    amount: Union[int, Value], context: ChainContext, has_datum: bool = False
+    amount: Union[int, Value, None], context: ChainContext, has_datum: bool = False
 ) -> int:
     """Calculate minimum lovelace a transaction output needs to hold.
 
@@ -137,7 +137,7 @@ def min_lovelace_pre_alonzo(
     Returns:
         int: Minimum required lovelace amount for this transaction output.
     """
-    if isinstance(amount, int) or not amount.multi_asset:
+    if amount is None or isinstance(amount, int) or not amount.multi_asset:
         return context.protocol_param.min_utxo
 
     b_size = bundle_size(amount.multi_asset)
@@ -162,15 +162,32 @@ def min_lovelace_post_alonzo(output: TransactionOutput, context: ChainContext) -
         int: Minimum required lovelace amount for this transaction output.
     """
     constant_overhead = 160
+
+    amt = output.amount
+
+    # If the amount of ADA is 0, a default value of 1 ADA will be used
+    if amt.coin == 0:
+        amt.coin = 1000000
+
+    # Make sure we are using post-alonzo output
+    tmp_out = TransactionOutput(
+        output.address,
+        output.amount,
+        output.datum_hash,
+        output.datum,
+        output.script,
+        True,
+    )
+
     return (
-        constant_overhead + len(output.to_cbor("bytes"))
+        constant_overhead + len(tmp_out.to_cbor("bytes"))
     ) * context.protocol_param.coins_per_utxo_byte
 
 
 def script_data_hash(
     redeemers: List[Redeemer],
     datums: List[Datum],
-    cost_models: Optional[CostModels] = None,
+    cost_models: Optional[Union[CostModels, Dict]] = None,
 ) -> ScriptDataHash:
     """Calculate plutus script data hash
 

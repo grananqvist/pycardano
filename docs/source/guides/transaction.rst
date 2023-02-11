@@ -105,16 +105,18 @@ To use a transaction builder, we first need to create a chain context, so the bu
 search proper transaction inputs to use. Currently, the available chain context is
 `BlockFrostChainContext <../api/pycardano.backend.base.html#pycardano.backend.blockfrost.BlockFrostChainContext>`_ ::
 
-    >>> from pycardano import BlockFrostChainContext, Network
+    >>> from blockfrost import ApiUrls
+    >>> from pycardano import BlockFrostChainContext
     >>> network = Network.TESTNET
-    >>> context = BlockFrostChainContext("your_blockfrost_project_id", network)
+    >>> context = BlockFrostChainContext("your_blockfrost_project_id", base_url=ApiUrls.preprod.value)
 
 
 Step 2
 
 Read signing key into the program and generate its corresponding verification key::
 
-    >>> from pycardano import PaymentSigningKey, PaymentVerificationKey, Address
+    >>> from pycardano import PaymentSigningKey, PaymentVerificationKey, Address, Network
+    >>> network = Network.TESTNET
     >>> sk = PaymentSigningKey.load("path/to/payment.skey")
     >>> vk = PaymentVerificationKey.from_signing_key(sk)
     >>> address = Address(pvk.hash(), svk.hash(), network)
@@ -142,15 +144,22 @@ Specify output amount::
 
 Step 6
 
+Add additional transaction information as needed:
+
+    >>> builder.ttl = 3600
+    >>> builder.reference_inputs.add(tx_in)
+
+Step 7
+
 Create a signed transaction using transaction builder. Unlike building a raw transaction, where we need to manually
 sign a transaction and build a transaction witness set, transaction builder can build and sign a transaction directly
 with its `build_and_sign` method. The code below tells the builder to build a transaction and sign the transaction
 with a list of signing keys (in this case, we only need the signature from one signing key, `sk`) and send the change
 back to sender's address::
 
-    >>> tx = builder.build_and_sign([sk], change_address=address)
+    >>> signed_tx = builder.build_and_sign([sk], change_address=address)
 
-Transaction ID could be obtained from the transaction obejct::
+Transaction ID could be obtained from the transaction object::
 
     >>> tx.id
     TransactionId(hex='1d40b950ded3a144fb4c100d1cf8b85719da91b06845530e34a0304427692ce4')

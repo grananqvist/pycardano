@@ -6,7 +6,7 @@ import inspect
 import json
 from dataclasses import dataclass, field, fields
 from enum import Enum
-from typing import Any, ClassVar, List, Optional, Union
+from typing import Any, ClassVar, Optional, Type, Union
 
 import cbor2
 from cbor2 import CBORTag
@@ -24,6 +24,7 @@ from pycardano.serialization import (
     Primitive,
     RawCBOR,
     default_encoder,
+    limit_primitive_type,
 )
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "PlutusV2Script",
     "RawPlutusData",
     "Redeemer",
+    "ScriptType",
     "datum_hash",
     "plutus_script_hash",
     "script_hash",
@@ -66,7 +68,8 @@ class CostModels(DictCBORSerializable):
         return result
 
     @classmethod
-    def from_primitive(cls: CostModels, value: dict) -> CostModels:
+    @limit_primitive_type(dict)
+    def from_primitive(cls: Type[CostModels], value: dict) -> CostModels:
         raise DeserializeException(
             "Deserialization of cost model is impossible, because some information is lost "
             "during serialization."
@@ -470,7 +473,7 @@ class PlutusData(ArrayCBORSerializable):
                 )
 
     def to_shallow_primitive(self) -> CBORTag:
-        primitives = super().to_shallow_primitive()
+        primitives: Primitive = super().to_shallow_primitive()
         if primitives:
             primitives = IndefiniteList(primitives)
         tag = get_tag(self.CONSTR_ID)
@@ -480,11 +483,8 @@ class PlutusData(ArrayCBORSerializable):
             return CBORTag(102, [self.CONSTR_ID, primitives])
 
     @classmethod
-    def from_primitive(cls: PlutusData, value: CBORTag) -> PlutusData:
-        if not isinstance(value, CBORTag):
-            raise DeserializeException(
-                f"Unexpected type: {CBORTag}. Got {type(value)} instead."
-            )
+    @limit_primitive_type(CBORTag)
+    def from_primitive(cls: Type[PlutusData], value: CBORTag) -> PlutusData:
         if value.tag == 102:
             tag = value.value[0]
             if tag != cls.CONSTR_ID:
@@ -532,7 +532,7 @@ class PlutusData(ArrayCBORSerializable):
             elif isinstance(obj, list):
                 return [_dfs(item) for item in obj]
             elif isinstance(obj, IndefiniteList):
-                return {"list": [_dfs(item) for item in obj.items]}
+                return {"list": [_dfs(item) for item in obj]}
             elif isinstance(obj, dict):
                 return {"map": [{"v": _dfs(v), "k": _dfs(k)} for k, v in obj.items()]}
             elif isinstance(obj, PlutusData):
@@ -546,7 +546,7 @@ class PlutusData(ArrayCBORSerializable):
         return json.dumps(_dfs(self), **kwargs)
 
     @classmethod
-    def from_dict(cls: PlutusData, data: dict) -> PlutusData:
+    def from_dict(cls: Type[PlutusData], data: dict) -> PlutusData:
         """Convert a dictionary to PlutusData
 
         Args:
@@ -608,7 +608,7 @@ class PlutusData(ArrayCBORSerializable):
         return _dfs(data)
 
     @classmethod
-    def from_json(cls: PlutusData, data: str) -> PlutusData:
+    def from_json(cls: Type[PlutusData], data: str) -> PlutusData:
         """Restore a json encoded string to a PlutusData.
 
         Args:
@@ -643,7 +643,8 @@ class RawPlutusData(CBORSerializable):
         return _dfs(self.data)
 
     @classmethod
-    def from_primitive(cls: RawPlutusData, value: CBORTag) -> RawPlutusData:
+    @limit_primitive_type(CBORTag)
+    def from_primitive(cls: Type[RawPlutusData], value: CBORTag) -> RawPlutusData:
         return cls(value)
 
 
@@ -675,7 +676,8 @@ class RedeemerTag(CBORSerializable, Enum):
         return self.value
 
     @classmethod
-    def from_primitive(cls, value: int) -> RedeemerTag:
+    @limit_primitive_type(int)
+    def from_primitive(cls: Type[RedeemerTag], value: int) -> RedeemerTag:
         return cls(value)
 
 
@@ -701,10 +703,11 @@ class Redeemer(ArrayCBORSerializable):
 
     data: Any
 
-    ex_units: ExecutionUnits = None
+    ex_units: Optional[ExecutionUnits] = None
 
     @classmethod
-    def from_primitive(cls: Redeemer, values: List[Primitive]) -> Redeemer:
+    @limit_primitive_type(list)
+    def from_primitive(cls: Type[Redeemer], values: list) -> Redeemer:
         if isinstance(values[2], CBORTag) and cls is Redeemer:
             values[2] = RawPlutusData.from_primitive(values[2])
         redeemer = super(Redeemer, cls).from_primitive(
@@ -728,13 +731,23 @@ def plutus_script_hash(
     return script_hash(script)
 
 
-def script_hash(
-    script: Union[bytes, NativeScript, PlutusV1Script, PlutusV2Script]
-) -> ScriptHash:
+class PlutusV1Script(bytes):
+    pass
+
+
+class PlutusV2Script(bytes):
+    pass
+
+
+ScriptType = Union[bytes, NativeScript, PlutusV1Script, PlutusV2Script]
+"""Script type. A Union type that contains all valid script types."""
+
+
+def script_hash(script: ScriptType) -> ScriptHash:
     """Calculates the hash of a script, which could be either native script or plutus script.
 
     Args:
-        script (Union[bytes, NativeScript, PlutusV1Script, PlutusV2Script]): A script.
+        script (ScriptType): A script.
 
     Returns:
         ScriptHash: blake2b hash of the script.
@@ -751,11 +764,3 @@ def script_hash(
         )
     else:
         raise TypeError(f"Unexpected script type: {type(script)}")
-
-
-class PlutusV1Script(bytes):
-    pass
-
-
-class PlutusV2Script(bytes):
-    pass

@@ -1,11 +1,39 @@
 from dataclasses import dataclass, field
 from test.pycardano.util import check_two_way_cbor
 
+import pytest
+
+from pycardano.exception import DeserializeException
 from pycardano.serialization import (
     ArrayCBORSerializable,
+    CBORSerializable,
     DictCBORSerializable,
+    IndefiniteList,
     MapCBORSerializable,
+    limit_primitive_type,
 )
+
+
+@pytest.mark.single
+def test_limit_primitive_type():
+    class MockClass(CBORSerializable):
+        @classmethod
+        def from_primitive(*args):
+            return
+
+    wrapped = limit_primitive_type(int, str, bytes, list, dict, tuple, dict)(
+        MockClass.from_primitive
+    )
+    wrapped(MockClass, 1)
+    wrapped(MockClass, "")
+    wrapped(MockClass, b"")
+    wrapped(MockClass, [])
+    wrapped(MockClass, tuple())
+    wrapped(MockClass, {})
+
+    wrapped = limit_primitive_type(int)(MockClass.from_primitive)
+    with pytest.raises(DeserializeException):
+        wrapped(MockClass, "")
 
 
 def test_array_cbor_serializable():
@@ -60,7 +88,7 @@ def test_map_cbor_serializable():
     @dataclass
     class Test2(MapCBORSerializable):
         c: str = None
-        test1: Test1 = Test1()
+        test1: Test1 = field(default_factory=Test1)
 
     t = Test2(test1=Test1(a="a"))
     assert t.to_cbor() == "a26163f6657465737431a261616161616260"
@@ -76,7 +104,7 @@ def test_map_cbor_serializable_custom_keys():
     @dataclass
     class Test2(MapCBORSerializable):
         c: str = field(default=None, metadata={"key": "0", "optional": True})
-        test1: Test1 = field(default=Test1(), metadata={"key": "1"})
+        test1: Test1 = field(default_factory=Test1, metadata={"key": "1"})
 
     t = Test2(test1=Test1(a="a"))
     assert t.to_primitive() == {"1": {"0": "a", "1": ""}}
@@ -106,3 +134,31 @@ def test_dict_cbor_serializable():
 
     # Make sure the cbor of a and b are exactly the same even when their items are inserted in different orders.
     assert a.to_cbor() == b.to_cbor()
+
+
+def test_indefinite_list():
+
+    a = IndefiniteList([4, 5])
+
+    a.append(6)
+    # append should add element and return IndefiniteList
+    assert a == IndefiniteList([4, 5, 6]) and type(a) == IndefiniteList
+
+    b = a + IndefiniteList([7, 8])
+    # addition of two IndefiniteLists should return IndefiniteList
+    assert type(b) == IndefiniteList
+
+    a.extend([7, 8])
+    # extend should add elements and return IndefiniteList
+    assert a == IndefiniteList([4, 5, 6, 7, 8]) and type(a) == IndefiniteList
+
+    # testing eq operator
+    assert a == b
+
+    b.pop()
+    # pop should remove last element and return IndefiniteList
+    assert b == IndefiniteList([4, 5, 6, 7]) and type(b) == IndefiniteList
+
+    b.remove(5)
+    # remove should remove element and return IndefiniteList
+    assert b == IndefiniteList([4, 6, 7]) and type(b) == IndefiniteList
