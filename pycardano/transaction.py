@@ -232,7 +232,7 @@ class Value(ArrayCBORSerializable):
         # change [int, {}] to [int]
         if value is not None and len(value) == 2 and value[1] == {}:
             value = [value[0]]
-        return ArrayCBORSerializable.from_primitive(value)
+        return super(Value, cls).from_primitive(value)
 
     def union(self, other: Union[Value, int]) -> Value:
         return self + other
