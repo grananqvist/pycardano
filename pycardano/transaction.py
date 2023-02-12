@@ -230,9 +230,25 @@ class Value(ArrayCBORSerializable):
     def from_primitive(cls, value):
         # pycardano doesn't support deserializing empty multi_asset
         # change [int, {}] to [int]
-        if value is not None and len(value) == 2 and value[1] == {}:
+        if isinstance(value, list) and len(value) == 2 and value[1] == {}:
             value = [value[0]]
-        return super(Value, cls).from_primitive(value)
+            obj = super(Value, cls).from_primitive(value)
+            obj.empty_multiasset = True
+            obj.multi_asset = {}
+        else:
+            if isinstance(value, int):
+                # pycardano.exception.DeserializeException: ['list'] typed value is required for deserialization. Got <class 'int'>: 14390267
+                value = [value]
+            obj = super(Value, cls).from_primitive(value)
+            obj.empty_multiasset = False
+        return obj
+
+    def to_primitive(self) -> Primitive:
+        prim = super().to_primitive()
+        if (isinstance(prim, int) and hasattr(self, 'empty_multiasset') and self.empty_multiasset):
+            # when primitive format was [int, {}], convert back to it.
+            prim = [prim, {}]
+        return prim
 
     def union(self, other: Union[Value, int]) -> Value:
         return self + other
