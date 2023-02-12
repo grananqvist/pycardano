@@ -350,7 +350,12 @@ class OgmiosChainContext(ChainContext):
         return len(results) > 0
 
     def _extract_asset_info(self, asset_hash: str) -> Tuple[str, ScriptHash, AssetName]:
-        policy_hex, asset_name_hex = asset_hash.split(".")
+        asset_hash_split = asset_hash.split(".")
+        if len(asset_hash_split) == 1:
+            policy_hex, = asset_hash_split
+            asset_name_hex = ""
+        else:
+            policy_hex, asset_name_hex = asset_hash_split
         policy = ScriptHash.from_primitive(policy_hex)
         asset_name = AssetName.from_primitive(asset_name_hex)
 
