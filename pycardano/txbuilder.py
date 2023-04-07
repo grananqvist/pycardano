@@ -961,6 +961,14 @@ class TransactionBuilder:
                         additional_utxo_pool.append(utxo)
                         additional_amount += utxo.output.amount
 
+            if self.utxo_selectors is None:
+                raise ValueError("Has unfulfilled amount, but selectors is none. "
+                                 f"additional_utxo_pool={additional_utxo_pool} "
+                                 f"additional_amount={additional_amount} "
+                                 f"unfulfilled_amount={unfulfilled_amount} "
+                                 f"inputs={self.inputs} "
+                                 f"outputs={self.outputs}")
+
             for index, selector in enumerate(self.utxo_selectors):
                 try:
                     selected, _ = selector.select(
